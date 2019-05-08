@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+message ComplexMessage {
+    enum SimpleEnum {
+        UNSPECIFIED = 0;
+        VALUE_A = 1;
+        VALUE_B = 2;
+        VALUE_B1 = 3;
+        VALUE_B2 = 4;
+        VALUE_B3 = 5;
+        VALUE_B4 = 6;
+        VALUE_B5 = 7;
+        VALUE_B6 = 8;
+        VALUE_B7 = 9;
+        VALUE_B8 = 1000;
+    }
+
+    message SimpleMessage {
+        int32 some_field = 1;
+        string some_field2 = 2;
+    }
+
+    SimpleEnum enum = 1;
+    int32 scalar = 2;
+    SimpleMessage message = 3;
+    bytes bytes = 4;
+
+    // Maps
+    map<int32, SimpleEnum> map_enum = 5;
+    map<int32, int32> map_scalar = 6;
+    map<int32, SimpleMessage> map_msg = 7;
+
+    // Repeated
+    repeated SimpleEnum r_enum = 8;
+    repeated int32 r_scalar = 9;
+    repeated SimpleMessage r_msg = 10;
+    repeated bytes r_bytes = 11;
+}
