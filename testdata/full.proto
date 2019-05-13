@@ -21,18 +21,33 @@ message ComplexMessage {
     }
 
     SimpleEnum enum = 1;
-    int32 scalar = 2;
-    SimpleMessage message = 3;
-    bytes bytes = 4;
+    int32 scalar_int32 = 2;
+    int64 scalar_int64 = 3;
+    uint32 scalar_uint32 = 4;
+    uint64 scalar_uint64 = 5;
+    sint32 scalar_sint32 = 6;
+    sint64 scalar_sint64 = 7;
+    fixed32 scalar_fixed32 = 8;
+    fixed64 scalar_fixed64 = 9;
+    sfixed32 scalar_sfixed32 = 10;
+    sfixed64 scalar_sfixed64 = 11;
+    double scalar_double = 12;
+    float scalar_float = 13;
+    bool scalar_bool = 14;
+    string scalar_string = 15;
+    SimpleMessage message = 16;
+    bytes bytes = 17;
 
     // Maps
-    map<int32, SimpleEnum> map_enum = 5;
-    map<int32, int32> map_scalar = 6;
-    map<int32, SimpleMessage> map_msg = 7;
+    map<int32, SimpleEnum> map_enum = 18;
+    map<int32, int32> map_scalar = 19;
+    map<string, SimpleMessage> map_msg = 20;
+    map<string, bytes> map_bytes = 21;
+    map<string, string> map_string = 22;
 
     // Repeated
-    repeated SimpleEnum r_enum = 8;
-    repeated int32 r_scalar = 9;
-    repeated SimpleMessage r_msg = 10;
-    repeated bytes r_bytes = 11;
+    repeated SimpleEnum r_enum = 23;
+    repeated int32 r_scalar = 24;
+    repeated SimpleMessage r_msg = 25;
+    repeated bytes r_bytes = 26;
 }
