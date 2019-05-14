@@ -142,6 +142,15 @@ func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]
 				}
 			case *Scalar:
 				switch typ.ScalarName {
+				case "string":
+					if messageField.IsRepeated() {
+						if _, ok := result[messageField.GetName()]; !ok {
+							result[messageField.GetName()] = []interface{}{}
+						}
+						result[messageField.GetName()] = append(result[messageField.GetName()].([]interface{}), string(data))
+					} else {
+						result[messageField.GetName()] = string(data)
+					}
 				case "bytes":
 					val := base64.StdEncoding.EncodeToString(data)
 					if messageField.IsRepeated() {
@@ -162,7 +171,7 @@ func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]
 								if err == io.ErrUnexpectedEOF {
 									break
 								}
-								return nil, errors.Wrap(err, "failed to get varint")
+								return nil, errors.Wrap(err, "failed to unmarshal scalar")
 							}
 							values = append(values, elem)
 						}
