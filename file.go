@@ -120,6 +120,7 @@ func (f *File) parseServices() error {
 		srv := &Service{
 			Name:          service.Name,
 			QuotedComment: quoteComment(service.Comment, nil),
+			File:          f,
 		}
 		for _, el := range service.Elements {
 			method, ok := el.(*proto.RPC)

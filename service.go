@@ -4,6 +4,7 @@ type Service struct {
 	Name          string
 	QuotedComment string
 	Methods       []*Method
+	File          *File
 }
 
 type Method struct {
