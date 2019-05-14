@@ -37,7 +37,6 @@ func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]
 		if !ok {
 			return nil, errors.Errorf("can't find field %d in message %s", fieldNum, msg.Name)
 		}
-		fmt.Println("parsing field ", messageField.GetName())
 		switch key & 7 {
 		case WireTypeVarint:
 			switch typ := messageField.GetType().(type) {
@@ -67,7 +66,7 @@ func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]
 		case WireTypeLengthDelimited:
 			data, err := buffer.DecodeRawBytes(false)
 			if err != nil {
-				panic(err)
+				return nil, errors.Wrap(err, "failed to decode raw bytes")
 			}
 
 			switch typ := messageField.GetType().(type) {
