@@ -1,4 +1,4 @@
-package parser
+package shprotos
 
 type TypeName []string
 
