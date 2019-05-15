@@ -1,16 +1,16 @@
 package shprotos
 
 import (
-	"encoding/base64"
+	"encoding/json"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/golang/protobuf/proto"
-	"github.com/saturn4er/shprotos/testdata"
+	full "github.com/saturn4er/shprotos/testdata"
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnmarshalMessageBytesToMap(t *testing.T) {
+func TestMarshalMessage(t *testing.T) {
 	parser := Parser{}
 	parsedFile, err := parser.Parse("./testdata/full.proto", nil, nil)
 	require.NoError(t, err)
@@ -27,7 +27,9 @@ func TestUnmarshalMessageBytesToMap(t *testing.T) {
 		ScalarFixed64:  10000,
 		ScalarSfixed32: -100000,
 		ScalarSfixed64: -1000000,
-		ScalarBool:     false,
+		ScalarDouble:   -2.5,
+		ScalarFloat:    -3.5,
+		ScalarBool:     true,
 		ScalarString:   "some another hello world",
 		Message: &full.ComplexMessage_SimpleMessage{
 			SomeField:  300,
@@ -54,6 +56,8 @@ func TestUnmarshalMessageBytesToMap(t *testing.T) {
 				SomeField2: "world",
 			},
 		},
+		MapBytes:  nil,
+		MapString: nil,
 		REnum: []full.ComplexMessage_SimpleEnum{
 			full.ComplexMessage_VALUE_B7,
 			full.ComplexMessage_VALUE_B8,
@@ -73,78 +77,91 @@ func TestUnmarshalMessageBytesToMap(t *testing.T) {
 			[]byte("hello"),
 			[]byte("world"),
 		},
+		Oneof: &full.ComplexMessage_OneofScalar{OneofScalar: 100},
 	}
-	data, err := proto.Marshal(protoMessage)
-	require.NoError(t, err)
 
-	msg, ok := parsedFile.Message(TypeName{"ComplexMessage"})
+	msgDesc, ok := parsedFile.Message(TypeName{"ComplexMessage"})
 	require.True(t, ok)
 
-	res, err := UnmarshalMessageBytesToMap(data, msg)
+	msg := `{
+	"bytes": "aGVsbG8gd29ybGQ=",
+	"enum": 1,
+	"map_enum": {
+		"1": 1,
+		"2": 2,
+		"3": 0
+	},
+	"map_msg": {
+		"hello": {
+			"some_field": 1,
+			"some_field2": "hello"
+		},
+		"world": {
+			"some_field": 2,
+			"some_field2": "world"
+		}
+	},
+	"map_scalar": {
+		"1": 2,
+		"2": 3,
+		"4": 5
+	},
+	"message": {
+		"some_field": 300,
+		"some_field2": "hello"
+	},
+	"oneof_scalar": 100,
+	"r_bytes": [
+		"aGVsbG8=",
+		"d29ybGQ="
+	],
+	"r_enum": [
+		9,
+		1000
+	],
+	"r_msg": [{
+			"some_field": 1,
+			"some_field2": "hello"
+		},
+		{
+			"some_field": 2,
+			"some_field2": "world"
+		}
+	],
+	"r_scalar": [
+		1,
+		2,
+		3,
+		4
+	],
+	"scalar_bool": true,
+	"scalar_double": -2.5,
+	"scalar_fixed32": 1000,
+	"scalar_fixed64": 10000,
+	"scalar_float": -3.5,
+	"scalar_int32": -10,
+	"scalar_int64": -20,
+	"scalar_sfixed32": -100000,
+	"scalar_sfixed64": -1000000,
+	"scalar_sint32": -50,
+	"scalar_sint64": -500,
+	"scalar_string": "some another hello world",
+	"scalar_uint32": 10,
+	"scalar_uint64": 20
+}`
+	var mapa = make(map[string]interface{})
+	err = json.Unmarshal([]byte(msg), &mapa)
 	require.NoError(t, err)
 
-	spew.Dump(res)
+	res, err := MarshalMessage(mapa, msgDesc)
+	require.NoError(t, err)
 
-	require.Equal(t, uint64(protoMessage.Enum), res["enum"])
+	spew.Dump(UnmarshalMessage(res, msgDesc))
 
-	require.Equal(t, protoMessage.ScalarInt32, res["scalar_int32"])
-	require.Equal(t, protoMessage.ScalarInt64, res["scalar_int64"])
-	require.Equal(t, protoMessage.ScalarUint32, res["scalar_uint32"])
-	require.Equal(t, protoMessage.ScalarUint64, res["scalar_uint64"])
-	require.Equal(t, protoMessage.ScalarSint32, res["scalar_sint32"])
-	require.Equal(t, protoMessage.ScalarSint64, res["scalar_sint64"])
-	require.Equal(t, protoMessage.ScalarFixed32, res["scalar_fixed32"])
-	require.Equal(t, protoMessage.ScalarFixed64, res["scalar_fixed64"])
-	require.Equal(t, protoMessage.ScalarSfixed32, res["scalar_sfixed32"])
-	require.Equal(t, protoMessage.ScalarSfixed64, res["scalar_sfixed64"])
-	require.Equal(t, protoMessage.ScalarBool, res["scalar_bool"])
-	require.Equal(t, protoMessage.ScalarString, res["scalar_string"])
-	require.Equal(t, map[string]interface{}{
-		"some_field":  protoMessage.Message.SomeField,
-		"some_field2": protoMessage.Message.SomeField2,
-	}, res["message"])
-	require.Equal(t, base64.StdEncoding.EncodeToString(protoMessage.Bytes), res["bytes"])
+	resultMsg := &full.ComplexMessage{}
+	err = proto.Unmarshal(res, resultMsg)
+	require.NoError(t, err)
 
-	require.Equal(t, map[interface{}]interface{}{
-		int32(1): int32(full.ComplexMessage_VALUE_A),
-		int32(2): int32(full.ComplexMessage_VALUE_B),
-		int32(3): int32(full.ComplexMessage_UNSPECIFIED),
-	}, res["map_enum"])
-	require.Equal(t, map[interface{}]interface{}{
-		int32(1): int32(2),
-		int32(2): int32(3),
-		int32(4): int32(5),
-	}, res["map_scalar"])
-	require.Equal(t, map[interface{}]interface{}{
-		"hello": map[string]interface{}{
-			"some_field":  int32(1),
-			"some_field2": "hello",
-		},
-		"world": map[string]interface{}{
-			"some_field":  int32(2),
-			"some_field2": "world",
-		},
-	}, res["map_msg"])
+	require.Equal(t, protoMessage, resultMsg)
 
-	require.Equal(t, []int32{
-		int32(full.ComplexMessage_VALUE_B7),
-		int32(full.ComplexMessage_VALUE_B8),
-	}, res["r_enum"])
-	require.Equal(t, []interface{}{
-		int32(1), int32(2), int32(3), int32(4),
-	}, res["r_scalar"])
-	require.Equal(t, []interface{}{
-		map[string]interface{}{
-			"some_field":  int32(1),
-			"some_field2": "hello",
-		},
-		map[string]interface{}{
-			"some_field":  int32(2),
-			"some_field2": "world",
-		},
-	}, res["r_msg"])
-	require.Equal(t, []interface{}{
-		"aGVsbG8=",
-		"d29ybGQ=",
-	}, res["r_bytes"])
 }

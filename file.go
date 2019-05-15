@@ -160,7 +160,7 @@ func (f *File) parseMessagesFields() error {
 					return errors.Errorf("failed to find message %s field %s type", strings.Join(msg.TypeName, "."), fld.Name)
 				}
 				fl := &NormalField{
-					KeyNumber:     fld.Sequence,
+					KeyNumber:     uint64(fld.Sequence),
 					Name:          fld.Name,
 					QuotedComment: quoteComment(fld.Comment, fld.InlineComment),
 					Repeated:      fld.Repeated,
@@ -187,7 +187,7 @@ func (f *File) parseMessagesFields() error {
 					file:      f,
 				}
 				mf := &MapField{
-					KeyNumber:     fld.Sequence,
+					KeyNumber:     uint64(fld.Sequence),
 					Name:          fld.Name,
 					QuotedComment: quoteComment(fld.Comment, fld.InlineComment),
 					descriptor:    fld,
@@ -208,7 +208,7 @@ func (f *File) parseMessagesFields() error {
 						return errors.Errorf("failed to find message %s field %s type", strings.Join(msg.TypeName, "."), fld.Name)
 					}
 					of.Fields = append(of.Fields, &NormalField{
-						KeyNumber:     fld.Sequence,
+						KeyNumber:     uint64(fld.Sequence),
 						Name:          fld.Name,
 						QuotedComment: quoteComment(fld.Comment, fld.InlineComment),
 						Repeated:      false,

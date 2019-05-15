@@ -2,299 +2,335 @@ package shprotos
 
 import (
 	"encoding/base64"
-	"fmt"
-	"io"
 	"math"
+	"reflect"
+	"strconv"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
 )
 
-const (
-	WireTypeVarint          = 0
-	WireType64Bit           = 1
-	WireTypeLengthDelimited = 2
-	WireTypeStartGroup      = 3 // deprecated
-	WireTypeEndGroup        = 4 // deprecated
-	WireType32Bit           = 5
-)
-
-func UnmarshalMessageBytesToMap(data []byte, msg *Message) (map[string]interface{}, error) {
-	return unmarshalMessageBytesToMap(proto.NewBuffer(data), msg)
+func MarshalMessage(data map[string]interface{}, message *Message) ([]byte, error) {
+	res := proto.NewBuffer(nil)
+	err := marshalMessage(res, data, message)
+	if err != nil {
+		return nil, err
+	}
+	return res.Bytes(), nil
 }
-func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
-	for {
-		key, err := buffer.DecodeVarint()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return result, nil
-			}
-			return nil, errors.Wrap(err, "failed to get key")
-		}
-		fieldNum := key >> 3
-		messageField, ok := msg.FieldByKeyNumber(int(fieldNum))
+
+func marshalMessage(buffer *proto.Buffer, data map[string]interface{}, message *Message) error {
+	for _, field := range message.GetFields() {
+		fieldValue, ok := data[field.GetName()]
 		if !ok {
-			return nil, errors.Errorf("can't find field %d in message %s", fieldNum, msg.Name)
+			continue
 		}
-		switch key & 7 {
-		case WireTypeVarint:
-			switch typ := messageField.GetType().(type) {
-			case *Enum:
-				value, err := buffer.DecodeVarint()
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to decode varint")
+		switch fld := field.(type) {
+		case *NormalField:
+			if fld.IsRepeated() {
+				if err := marshalMessageNormalRepeatedField(buffer, fieldValue, fld.Type, fld.KeyNumber); err != nil {
+					return errors.Wrapf(err, "failed to marshal normal repeated field %s", field.GetName())
 				}
-				result[messageField.GetName()] = value
-			case *Scalar:
-				if typ.ScalarName == "bytes" {
-					return nil, errors.New("can't assign varint to bytes field")
+			} else {
+				if err := marshalMessageNormalField(buffer, fieldValue, fld.Type, fld.KeyNumber); err != nil {
+					return errors.Wrapf(err, "failed to marshal normal field %s", field.GetName())
 				}
-
-				res, err := unmarshaScalar(buffer, typ)
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to unmarshal varint scalar")
-				}
-				result[messageField.GetName()] = res
 			}
-		case WireType64Bit:
-			res, err := unmarshaScalar(buffer, messageField.GetType().(*Scalar))
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to unmarshal varint scalar")
+		case *MapField:
+			mapValue := reflect.ValueOf(fieldValue)
+			iter := mapValue.MapRange()
+			for iter.Next() {
+				mapBuffer := proto.NewBuffer(nil)
+				mapKey := iter.Key().Interface()
+				mapValue := iter.Value().Interface()
+				if err := buffer.EncodeVarint(messageKeyVarint(fld.KeyNumber, WireTypeLengthDelimited)); err != nil {
+					return errors.Wrap(err, "failed to write field key")
+				}
+				if err := marshalMessageNormalField(mapBuffer, mapKey, fld.Map.KeyType, 1); err != nil {
+					return errors.Wrap(err, "failed to marshal map key")
+				}
+				if err := marshalMessageNormalField(mapBuffer, mapValue, fld.Map.ValueType, 2); err != nil {
+					return errors.Wrap(err, "failed to marshal map key")
+				}
+				if err := buffer.EncodeRawBytes(mapBuffer.Bytes()); err != nil {
+					return errors.Wrap(err, "failed to encode map buffer bytes")
+				}
 			}
-			result[messageField.GetName()] = res
-		case WireTypeLengthDelimited:
-			data, err := buffer.DecodeRawBytes(false)
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to decode raw bytes")
-			}
-
-			switch typ := messageField.GetType().(type) {
-			case *Map:
-				if _, ok := result[messageField.GetName()]; !ok {
-					result[messageField.GetName()] = make(map[interface{}]interface{})
-				}
-				resultMap := result[messageField.GetName()].(map[interface{}]interface{})
-
-				mapBuffer := proto.NewBuffer(data)
-				mapKeyKey, err := mapBuffer.DecodeVarint()
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to decode map key key")
-				}
-				mapKeyWireType := mapKeyKey & 7
-
-				var mapKey interface{}
-				var mapValue interface{}
-				switch mapKeyWireType {
-				case WireTypeVarint, WireType64Bit, WireType32Bit:
-					res, err := unmarshaScalar(mapBuffer, typ.KeyType.(*Scalar))
-					if err != nil {
-						return nil, errors.Wrap(err, "failed to unmarshal varint scalar")
-					}
-					mapKey = res
-				case WireTypeLengthDelimited:
-					str, err := mapBuffer.DecodeStringBytes()
-					if err != nil {
-						return nil, errors.Wrap(err, "failed to decode string bytes")
-					}
-					mapKey = str
-				}
-
-				mapValueKey, err := mapBuffer.DecodeVarint()
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to decode map value key")
-				}
-				mapValueWireType := mapValueKey & 7
-				switch mapValueWireType {
-				case WireTypeVarint, WireType32Bit, WireType64Bit:
-					res, err := unmarshaScalar(mapBuffer, typ.KeyType.(*Scalar))
-					if err != nil {
-						return nil, errors.Wrap(err, "failed to unmarshal varint scalar")
-					}
-					mapValue = res
-				case WireTypeLengthDelimited:
-					valueBytes, err := mapBuffer.DecodeRawBytes(false)
-					if err != nil {
-						return nil, errors.Wrap(err, "failed to decode map value raw bytes")
-					}
-					switch valueType := typ.ValueType.(type) {
-					case *Message:
-						msgValue, err := unmarshalMessageBytesToMap(proto.NewBuffer(valueBytes), valueType)
-						if err != nil {
-							return nil, errors.WithStack(err)
-						}
-						mapValue = msgValue
-					}
-				}
-				resultMap[mapKey] = mapValue
-			case *Message:
-				msgValue, err := UnmarshalMessageBytesToMap(data, typ)
-				if err != nil {
-					return nil, errors.WithStack(err)
-				}
-				if messageField.IsRepeated() {
-					if _, ok := result[messageField.GetName()]; !ok {
-						result[messageField.GetName()] = []interface{}{}
-					}
-					result[messageField.GetName()] = append(result[messageField.GetName()].([]interface{}), msgValue)
-				} else {
-					result[messageField.GetName()] = msgValue
-				}
-			case *Scalar:
-				switch typ.ScalarName {
-				case "string":
-					if messageField.IsRepeated() {
-						if _, ok := result[messageField.GetName()]; !ok {
-							result[messageField.GetName()] = []interface{}{}
-						}
-						result[messageField.GetName()] = append(result[messageField.GetName()].([]interface{}), string(data))
-					} else {
-						result[messageField.GetName()] = string(data)
-					}
-				case "bytes":
-					val := base64.StdEncoding.EncodeToString(data)
-					if messageField.IsRepeated() {
-						if _, ok := result[messageField.GetName()]; !ok {
-							result[messageField.GetName()] = []interface{}{}
-						}
-						result[messageField.GetName()] = append(result[messageField.GetName()].([]interface{}), string(val))
-					} else {
-						result[messageField.GetName()] = string(val)
-					}
-				default:
-					if messageField.IsRepeated() {
-						buff := proto.NewBuffer(data)
-						var values []interface{}
-						for {
-							elem, err := unmarshaScalar(buff, typ)
-							if err != nil {
-								if err == io.ErrUnexpectedEOF {
-									break
-								}
-								return nil, errors.Wrap(err, "failed to unmarshal scalar")
-							}
-							values = append(values, elem)
-						}
-						result[messageField.GetName()] = values
-					} else {
-						result[messageField.GetName()] = string(data)
-					}
-				}
-
-			case *Enum:
-				buff := proto.NewBuffer(data)
-				var values []int32
-				for {
-					elem, err := buff.DecodeVarint()
-					if err != nil {
-						if err == io.ErrUnexpectedEOF {
-							break
-						}
-						return nil, errors.Wrap(err, "failed to get varint")
-					}
-					values = append(values, int32(elem))
-				}
-				result[messageField.GetName()] = values
-			default:
-				fmt.Printf("unknown length delimited value%T\n", messageField.GetType())
-			}
-		case WireTypeStartGroup:
-			fmt.Println("Unhandled group start")
-		case WireTypeEndGroup:
-			fmt.Println("Unhandled group end")
-		case WireType32Bit:
-			res, err := unmarshaScalar(buffer, messageField.GetType().(*Scalar))
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to unmarshal fixed 32 scalar")
-
-			}
-			result[messageField.GetName()] = res
 		}
 	}
-	return result, nil
+	return nil
 }
 
-func unmarshaScalar(buffer *proto.Buffer, scalar *Scalar) (interface{}, error) {
-	switch scalar.ScalarName {
-	case "sfixed32":
-		value, err := buffer.DecodeFixed32()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, err
+func marshalMessageNormalField(buffer *proto.Buffer, value interface{}, typ Type, keyNumber uint64) error {
+	switch typ := typ.(type) {
+	case *Scalar:
+		switch typ.ScalarName {
+		case "string":
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeLengthDelimited)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
 			}
-			return nil, errors.Wrap(err, "failed to decode zigzag32")
-		}
-		return int32(value), nil
-	case "sfixed64":
-		value, err := buffer.DecodeFixed64()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, err
+			if err := buffer.EncodeStringBytes(value.(string)); err != nil {
+				return errors.Wrap(err, "failed to encode string bytes")
 			}
-			return nil, errors.Wrap(err, "failed to decode zigzag64")
-		}
-		return int64(value), nil
-	case "sint32":
-		value, err := buffer.DecodeZigzag32()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, err
+		case "bytes":
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeLengthDelimited)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
 			}
-			return nil, errors.Wrap(err, "failed to decode zigzag32")
-		}
-		return int32(value), nil
-	case "sint64":
-		value, err := buffer.DecodeZigzag64()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, err
+			value, err := base64.StdEncoding.DecodeString(value.(string))
+			if err != nil {
+				return errors.Wrap(err, "failed to encode base64 string")
 			}
-			return nil, errors.Wrap(err, "failed to decode zigzag64")
-		}
-		return int64(value), nil
-	case "fixed32":
-		value, err := buffer.DecodeFixed32()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, err
+			if err := buffer.EncodeRawBytes(value); err != nil {
+				return errors.Wrap(err, "failed to encode string bytes")
 			}
-			return nil, errors.Wrap(err, "failed to decode fixed 32")
-		}
-		return uint32(value), nil
-	case "fixed64":
-		value, err := buffer.DecodeFixed64()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, err
-			}
-			return nil, errors.Wrap(err, "failed to decode fixed 64")
-		}
-		return uint64(value), nil
-	case "int32", "int64", "uint32", "uint64", "bool", "double", "float":
-		value, err := buffer.DecodeVarint()
-		if err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, err
-			}
-			return nil, errors.Wrap(err, "failed to decode varint")
-		}
-		switch scalar.ScalarName {
-		case "int32":
-			return int32(value), nil
-		case "int64":
-			return int64(value), nil
-		case "uint32":
-			return uint32(value), nil
-		case "uint64":
-			return uint64(value), nil
 		case "bool":
-			return value == 1, nil
-		case "double":
-			return math.Float64frombits(value), nil
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeVarint)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			res := uint64(0)
+			if value.(bool) {
+				res = 1
+			}
+			if err := buffer.EncodeVarint(res); err != nil {
+				return errors.Wrap(err, "failed to encode bool")
+			}
+		case "sfixed32", "fixed32":
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireType32Bit)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			val, err := uint64FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to resolve value")
+			}
+			if err := buffer.EncodeFixed32(val); err != nil {
+				return errors.Wrap(err, "failed to encode fixed 32")
+			}
+		case "sfixed64", "fixed64":
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireType64Bit)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			val, err := uint64FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to resolve value")
+			}
+			if err := buffer.EncodeFixed64(val); err != nil {
+				return errors.Wrap(err, "failed to encode fixed 64")
+			}
+		case "sint32":
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeVarint)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			val, err := uint64FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to resolve value")
+			}
+			if err := buffer.EncodeZigzag32(val); err != nil {
+				return errors.Wrap(err, "failed to encode zigzag 32")
+			}
+		case "sint64":
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeVarint)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			val, err := uint64FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to resolve value")
+			}
+			if err := buffer.EncodeZigzag64(val); err != nil {
+				return errors.Wrap(err, "failed to encode zigzag 64")
+			}
 		case "float":
-			return math.Float32frombits(uint32(value)), nil
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireType32Bit)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			fl32, err := float32FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to resolve value")
+			}
+			if err := buffer.EncodeFixed32(uint64(math.Float32bits(fl32))); err != nil {
+				return errors.Wrap(err, "failed to encode fixed 32")
+			}
+		case "double":
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireType64Bit)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			fl64, err := float64FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to resolve value")
+			}
+			if err := buffer.EncodeFixed64(math.Float64bits(fl64)); err != nil {
+				return errors.Wrap(err, "failed to encode fixed 64")
+			}
+		default:
+			if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeVarint)); err != nil {
+				return errors.Wrap(err, "failed to write field key")
+			}
+			val, err := uint64FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to resolve value")
+			}
+			if err := buffer.EncodeVarint(val); err != nil {
+				return errors.Wrap(err, "failed to encode fixed 64")
+			}
 		}
-		return int32(value), nil
+	case *Enum:
+		if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeVarint)); err != nil {
+			return errors.Wrap(err, "failed to write field key")
+		}
+		res, err := uint64FromInterface(value)
+		if err != nil {
+			return errors.Wrap(err, "failed to resolve enum value")
+		}
+		if err := buffer.EncodeVarint(res); err != nil {
+			return errors.Wrap(err, "failed to encode bool")
+		}
+	case *Message:
+		if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeLengthDelimited)); err != nil {
+			return errors.Wrap(err, "failed to write field key")
+		}
+		msgData, err := MarshalMessage(value.(map[string]interface{}), typ)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal message")
+		}
+		if err := buffer.EncodeRawBytes(msgData); err != nil {
+			return errors.Wrap(err, "failed to encode message")
+		}
+
 	}
-	return nil, errors.Errorf("unknown scalar type: %s", scalar.ScalarName)
+	return nil
+}
+
+func marshalMessageNormalRepeatedField(buffer *proto.Buffer, value interface{}, typ Type, keyNumber uint64) error {
+	switch typ := typ.(type) {
+	case *Scalar, *Message:
+		values := value.([]interface{})
+		for _, value := range values {
+			if err := marshalMessageNormalField(buffer, value, typ, keyNumber); err != nil {
+				return errors.Wrap(err, "failed to marshal message normal field")
+			}
+		}
+	case *Enum:
+		fieldBuffer := proto.NewBuffer(nil)
+		values := value.([]interface{})
+		for _, value := range values {
+			enumValue, err := uint64FromInterface(value)
+			if err != nil {
+				return errors.Wrap(err, "failed to get enum value")
+			}
+			if err := fieldBuffer.EncodeVarint(enumValue); err != nil {
+				return errors.Wrap(err, "failed to encode enum array value")
+			}
+		}
+		if err := buffer.EncodeVarint(messageKeyVarint(keyNumber, WireTypeLengthDelimited)); err != nil {
+			return errors.Wrap(err, "failed to write field key")
+		}
+		if err := buffer.EncodeRawBytes(fieldBuffer.Bytes()); err != nil {
+			return errors.Wrap(err, "failed to encode enum array field")
+		}
+
+	}
+	return nil
+}
+
+func messageKeyVarint(fieldNum uint64, wireType uint64) uint64 {
+	return uint64((fieldNum << 3) | wireType)
+}
+
+func uint64FromInterface(val interface{}) (uint64, error) {
+	switch val := val.(type) {
+	case int:
+		return uint64(val), nil
+	case uint8:
+		return uint64(val), nil
+	case uint16:
+		return uint64(val), nil
+	case uint32:
+		return uint64(val), nil
+	case uint64:
+		return val, nil
+	case int8:
+		return uint64(val), nil
+	case int16:
+		return uint64(val), nil
+	case int32:
+		return uint64(val), nil
+	case int64:
+		return uint64(val), nil
+	case float32:
+		return uint64(val), nil
+	case float64:
+		return uint64(val), nil
+	case string:
+		v, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to parse int from string")
+		}
+		return uint64(v), nil
+	}
+	return 0, errors.Errorf("can't convert %T to uint64", val)
+}
+func float64FromInterface(val interface{}) (float64, error) {
+	switch val := val.(type) {
+	case int:
+		return float64(val), nil
+	case uint8:
+		return float64(val), nil
+	case uint16:
+		return float64(val), nil
+	case uint32:
+		return float64(val), nil
+	case uint64:
+		return float64(val), nil
+	case int8:
+		return float64(val), nil
+	case int16:
+		return float64(val), nil
+	case int32:
+		return float64(val), nil
+	case int64:
+		return float64(val), nil
+	case float32:
+		return float64(val), nil
+	case float64:
+		return val, nil
+	case string:
+		v, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to parse float64 from string")
+		}
+		return v, nil
+	}
+	return 0, errors.Errorf("can't convert %T to uint64", val)
+}
+func float32FromInterface(val interface{}) (float32, error) {
+	switch val := val.(type) {
+	case int:
+		return float32(val), nil
+	case uint8:
+		return float32(val), nil
+	case uint16:
+		return float32(val), nil
+	case uint32:
+		return float32(val), nil
+	case uint64:
+		return float32(val), nil
+	case int8:
+		return float32(val), nil
+	case int16:
+		return float32(val), nil
+	case int32:
+		return float32(val), nil
+	case int64:
+		return float32(val), nil
+	case float32:
+		return val, nil
+	case float64:
+		return float32(val), nil
+	case string:
+		v, err := strconv.ParseFloat(val, 32)
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to parse float32 from string")
+		}
+		return float32(v), nil
+	}
+	return 0, errors.Errorf("can't convert %T to uint64", val)
 }

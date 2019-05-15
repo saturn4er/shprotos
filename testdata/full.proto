@@ -50,4 +50,10 @@ message ComplexMessage {
     repeated int32 r_scalar = 24;
     repeated SimpleMessage r_msg = 25;
     repeated bytes r_bytes = 26;
+
+    oneof oneof {
+        int32 oneof_scalar = 27;
+        SimpleMessage oneof_message = 28;
+        SimpleEnum oneof_enum = 29;
+    }
 }

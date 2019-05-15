@@ -33,7 +33,7 @@ type Message struct {
 	parentMsg     *Message
 }
 
-func (m Message) FieldByKeyNumber(key int) (Field, bool) {
+func (m Message) FieldByKeyNumber(key uint64) (Field, bool) {
 	for _, field := range m.GetFields() {
 		if field.GetKeyNumber() == key {
 			return field, true
@@ -132,14 +132,14 @@ func (m Message) GetFullName() string {
 }
 
 type Field interface {
-	GetKeyNumber() int
+	GetKeyNumber() uint64
 	GetName() string
 	GetType() Type
 	IsRepeated() bool
 }
 
 type NormalField struct {
-	KeyNumber     int
+	KeyNumber     uint64
 	Name          string
 	QuotedComment string
 	Repeated      bool
@@ -150,7 +150,7 @@ type NormalField struct {
 	OneOf         *OneOf
 }
 
-func (n *NormalField) GetKeyNumber() int {
+func (n *NormalField) GetKeyNumber() uint64 {
 	return n.KeyNumber
 }
 
@@ -167,14 +167,14 @@ func (n *NormalField) IsRepeated() bool {
 }
 
 type MapField struct {
-	KeyNumber     int
+	KeyNumber     uint64
 	Name          string
 	QuotedComment string
 	descriptor    *proto.MapField
 	Map           *Map
 }
 
-func (n *MapField) GetKeyNumber() int {
+func (n *MapField) GetKeyNumber() uint64 {
 	return n.KeyNumber
 }
 
