@@ -109,17 +109,17 @@ func TestUnmarshalMessage(t *testing.T) {
 	}, res["message"])
 	require.Equal(t, base64.StdEncoding.EncodeToString(protoMessage.Bytes), res["bytes"])
 
-	require.Equal(t, map[interface{}]interface{}{
-		int32(1): int32(full.ComplexMessage_VALUE_A),
-		int32(2): int32(full.ComplexMessage_VALUE_B),
-		int32(3): int32(full.ComplexMessage_UNSPECIFIED),
+	require.Equal(t, map[string]interface{}{
+		"1": int32(full.ComplexMessage_VALUE_A),
+		"2": int32(full.ComplexMessage_VALUE_B),
+		"3": int32(full.ComplexMessage_UNSPECIFIED),
 	}, res["map_enum"])
-	require.Equal(t, map[interface{}]interface{}{
-		int32(1): int32(2),
-		int32(2): int32(3),
-		int32(4): int32(5),
+	require.Equal(t, map[string]interface{}{
+		"1": int32(2),
+		"2": int32(3),
+		"4": int32(5),
 	}, res["map_scalar"])
-	require.Equal(t, map[interface{}]interface{}{
+	require.Equal(t, map[string]interface{}{
 		"hello": map[string]interface{}{
 			"some_field":  int32(1),
 			"some_field2": "hello",

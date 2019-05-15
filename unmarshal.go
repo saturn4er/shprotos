@@ -72,9 +72,9 @@ func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]
 			switch typ := messageField.GetType().(type) {
 			case *Map:
 				if _, ok := result[messageField.GetName()]; !ok {
-					result[messageField.GetName()] = make(map[interface{}]interface{})
+					result[messageField.GetName()] = make(map[string]interface{})
 				}
-				resultMap := result[messageField.GetName()].(map[interface{}]interface{})
+				resultMap := result[messageField.GetName()].(map[string]interface{})
 
 				mapBuffer := proto.NewBuffer(data)
 				mapKeyKey, err := mapBuffer.DecodeVarint()
@@ -83,7 +83,7 @@ func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]
 				}
 				mapKeyWireType := mapKeyKey & 7
 
-				var mapKey interface{}
+				var mapKey string
 				var mapValue interface{}
 				switch mapKeyWireType {
 				case WireTypeVarint, WireType64Bit, WireType32Bit:
@@ -91,7 +91,7 @@ func unmarshalMessageBytesToMap(buffer *proto.Buffer, msg *Message) (map[string]
 					if err != nil {
 						return nil, errors.Wrap(err, "failed to unmarshal varint scalar")
 					}
-					mapKey = res
+					mapKey = fmt.Sprint(res)
 				case WireTypeLengthDelimited:
 					str, err := mapBuffer.DecodeStringBytes()
 					if err != nil {
