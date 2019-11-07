@@ -124,7 +124,7 @@ func (f *File) parseServices() error {
 		}
 		for _, el := range service.Elements {
 			method, ok := el.(*proto.RPC)
-			if !ok || method.StreamsRequest || method.StreamsReturns {
+			if !ok {
 				continue
 			}
 			reqTyp, ok := f.findType(method.RequestType, f.PkgName)
