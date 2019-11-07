@@ -8,9 +8,11 @@ type Service struct {
 }
 
 type Method struct {
-	Name          string
-	QuotedComment string
-	InputMessage  *Message
-	OutputMessage *Message
-	Service       *Service
+	Name           string
+	QuotedComment  string
+	InputMessage   *Message
+	OutputMessage  *Message
+	StreamRequest  bool
+	StreamResponse bool
+	Service        *Service
 }

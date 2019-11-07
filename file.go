@@ -136,11 +136,13 @@ func (f *File) parseServices() error {
 				return errors.Errorf("can't find request message %s", method.RequestType)
 			}
 			mtd := &Method{
-				Name:          method.Name,
-				QuotedComment: quoteComment(method.Comment, method.InlineComment),
-				InputMessage:  reqTyp.(*Message),
-				OutputMessage: retTyp.(*Message),
-				Service:       srv,
+				Name:           method.Name,
+				QuotedComment:  quoteComment(method.Comment, method.InlineComment),
+				InputMessage:   reqTyp.(*Message),
+				OutputMessage:  retTyp.(*Message),
+				StreamRequest:  method.StreamsRequest,
+				StreamResponse: method.StreamsReturns,
+				Service:        srv,
 			}
 			srv.Methods = append(srv.Methods, mtd)
 		}

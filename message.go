@@ -1,6 +1,8 @@
 package shprotos
 
-import "github.com/emicklei/proto"
+import (
+	"github.com/emicklei/proto"
+)
 
 type Messages []*Message
 
